@@ -1,7 +1,7 @@
 /*
   xdrv_17_rcswitch.ino - RF transceiver using RcSwitch library for Tasmota
 
-  Copyright (C) 2021  Theo Arends
+  Copyright (C) 2020  Theo Arends
 
   This program is free software: you can redistribute it and/or modify
   it under the terms of the GNU General Public License as published by
@@ -56,14 +56,14 @@ void RfReceiveCheck(void) {
     int protocol = mySwitch.getReceivedProtocol();
     int delay = mySwitch.getReceivedDelay();
 
-    AddLog(LOG_LEVEL_DEBUG, PSTR("RFR: Data 0x%lX (%u), Bits %d, Protocol %d, Delay %d"), data, data, bits, protocol, delay);
+    AddLog_P(LOG_LEVEL_DEBUG, PSTR("RFR: Data 0x%lX (%u), Bits %d, Protocol %d, Delay %d"), data, data, bits, protocol, delay);
 
     uint32_t now = millis();
     if ((now - rf_lasttime > RF_TIME_AVOID_DUPLICATE) && (data > 0)) {
       rf_lasttime = now;
 
       char stemp[16];
-      if (Settings->flag.rf_receive_decimal) {      // SetOption28 - RF receive data format (0 = hexadecimal, 1 = decimal)
+      if (Settings.flag.rf_receive_decimal) {      // SetOption28 - RF receive data format (0 = hexadecimal, 1 = decimal)
         snprintf_P(stemp, sizeof(stemp), PSTR("%u"), (uint32_t)data);
       } else {
         snprintf_P(stemp, sizeof(stemp), PSTR("\"0x%lX\""), (uint32_t)data);
@@ -86,10 +86,10 @@ void RfInit(void) {
   if (PinUsed(GPIO_RFRECV)) {
     pinMode( Pin(GPIO_RFRECV), INPUT);
     mySwitch.enableReceive(Pin(GPIO_RFRECV));
-    if (!Settings->rf_protocol_mask) {
-      Settings->rf_protocol_mask = (1ULL << mySwitch.getNumProtos()) -1;
+    if (!Settings.rf_protocol_mask) {
+      Settings.rf_protocol_mask = (1ULL << mySwitch.getNumProtos()) -1;
     }
-    mySwitch.setReceiveProtocolMask(Settings->rf_protocol_mask);
+    mySwitch.setReceiveProtocolMask(Settings.rf_protocol_mask);
   }
 }
 
@@ -100,16 +100,16 @@ void RfInit(void) {
 void CmndRfProtocol(void) {
   if (!PinUsed(GPIO_RFRECV)) { return; }
 
-//  AddLog(LOG_LEVEL_INFO, PSTR("RFR:CmndRfRxProtocol:: index:%d usridx:%d data_len:%d data:\"%s\""),XdrvMailbox.index, XdrvMailbox.usridx, XdrvMailbox.data_len,XdrvMailbox.data);
+//  AddLog_P(LOG_LEVEL_INFO, PSTR("RFR:CmndRfRxProtocol:: index:%d usridx:%d data_len:%d data:\"%s\""),XdrvMailbox.index, XdrvMailbox.usridx, XdrvMailbox.data_len,XdrvMailbox.data);
 
   uint64_t thisdat;
   if (1 == XdrvMailbox.usridx) {
     if (XdrvMailbox.payload >= 0) {
       thisdat = (1ULL << (XdrvMailbox.index -1));
       if (XdrvMailbox.payload &1) {
-        Settings->rf_protocol_mask |= thisdat;
+        Settings.rf_protocol_mask |= thisdat;
       } else {
-        Settings->rf_protocol_mask &= ~thisdat;
+        Settings.rf_protocol_mask &= ~thisdat;
       }
     }
     else if (XdrvMailbox.data_len > 0) {
@@ -118,24 +118,24 @@ void CmndRfProtocol(void) {
   } else {
     if (XdrvMailbox.data_len > 0) {
       if ('A' == toupper(XdrvMailbox.data[0])) {
-        Settings->rf_protocol_mask = (1ULL << mySwitch.getNumProtos()) -1;
+        Settings.rf_protocol_mask = (1ULL << mySwitch.getNumProtos()) -1;
       } else {
         thisdat = strtoull(XdrvMailbox.data, nullptr, 0);
         if ((thisdat > 0) || ('0' == XdrvMailbox.data[0])) {
-          Settings->rf_protocol_mask = thisdat;
+          Settings.rf_protocol_mask = thisdat;
         } else {
           return;  // Not a number
         }
       }
     }
   }
-  mySwitch.setReceiveProtocolMask(Settings->rf_protocol_mask);
-//  AddLog(LOG_LEVEL_INFO, PSTR("RFR: CmndRfProtocol:: Start responce"));
+  mySwitch.setReceiveProtocolMask(Settings.rf_protocol_mask);
+//  AddLog_P(LOG_LEVEL_INFO, PSTR("RFR: CmndRfProtocol:: Start responce"));
   Response_P(PSTR("{\"" D_CMND_RFPROTOCOL "\":\""));
   bool gotone = false;
   thisdat = 1;
   for (uint32_t i = 0; i < mySwitch.getNumProtos(); i++) {
-    if (Settings->rf_protocol_mask & thisdat) {
+    if (Settings.rf_protocol_mask & thisdat) {
       ResponseAppend_P(PSTR("%s%d"), (gotone) ? "," : "", i+1);
       gotone = true;
     }
@@ -157,7 +157,7 @@ void CmndRfSend(void)
     unsigned int bits = 24;
     int protocol = 1;
     int repeat = 10;
-    int pulse = 0; // 0 leave the library use the default value depending on protocol
+    int pulse = 350;
 
     JsonParser parser(XdrvMailbox.data);
     JsonParserObject root = parser.getRootObject();
@@ -195,8 +195,8 @@ void CmndRfSend(void)
 
     if (!protocol) { protocol = 1; }
     mySwitch.setProtocol(protocol);
-    // if pulse is specified in the command, enforce the provided value (otherwise lib takes default)
-    if (pulse) { mySwitch.setPulseLength(pulse); }
+    if (!pulse) { pulse = 350; }      // Default pulse length for protocol 1
+    mySwitch.setPulseLength(pulse);
     if (!repeat) { repeat = 10; }     // Default at init
     mySwitch.setRepeatTransmit(repeat);
     if (!bits) { bits = 24; }         // Default 24 bits
